@@ -38,6 +38,7 @@ import argparse
 import time
 import signal
 import sys, os
+import datetime, pickle
 
 try:
     import subprocess32 as subprocess
@@ -49,6 +50,13 @@ __version__ = '0.6.1'
 NO_OUTPUT   = 0
 WANT_OUTPUT = 1
 LOG_ERRORS  = 2
+
+traceData = []
+startTime = datetime.datetime.now()
+traceCount = 1
+traceDirName = "./tmp"
+if not os.path.isdir(traceDirName):
+    os.mkdir(traceDirName)
 
 def main():
 
@@ -293,6 +301,13 @@ def id_range_update(afl_file, cov_paths):
 
     return
 
+def insertSeq(cov, ctype, val):
+    if ctype == "function":
+        cov['pos'][f]["functionSeq"].append(val)
+    else:
+        cov['pos'][f]["lineSeq"].append(val)
+
+
 def coverage_diff(cycle_num, fuzz_dir, cov_paths, afl_file, cov, cargs):
 
     log_lines         = []
@@ -456,9 +471,16 @@ def cov_init(cfile, cov):
     return
 
 def extract_coverage(lcov_file, cargs):
-
+    
+    global traceCount
     search_rv = False
     tmp_cov = {}
+    endTime = datetime.datetime.now()
+    k = endTime - startTime
+    k = k.total_seconds()
+    SeqInfo = {}
+    SeqInfo["time"] = k
+    SeqInfo["data"] = []
 
     if not os.path.exists(lcov_file):
         logr("[-] Coverage file '%s' does not exist, skipping." % lcov_file)
@@ -468,6 +490,7 @@ def extract_coverage(lcov_file, cargs):
     ### zero times
     with open(lcov_file, 'r') as f:
         current_file = ''
+        tmpSeq = {"function":[], "line":[]}
         for line in f:
             line = line.strip()
 
@@ -475,6 +498,8 @@ def extract_coverage(lcov_file, cargs):
             if m and m.group(1):
                 current_file = m.group(1)
                 cov_init(current_file, tmp_cov)
+                SeqInfo["data"].append(tmpSeq)
+                tmpSeq = {"function":[], "line":[]}
                 continue
 
             if current_file:
@@ -486,6 +511,7 @@ def extract_coverage(lcov_file, cargs):
                         tmp_cov['zero'][current_file]['function'][fcn] = ''
                     else:
                         tmp_cov['pos'][current_file]['function'][fcn] = ''
+                        tmpSeq["function"].append(fcn)
                     continue
 
                 ### look for lines that were never called
@@ -497,7 +523,12 @@ def extract_coverage(lcov_file, cargs):
                         tmp_cov['zero'][current_file]['line'][lnum] = ''
                     else:
                         tmp_cov['pos'][current_file]['line'][lnum] = ''
-
+                        tmpSeq["line"].append(lnum)
+    savefile = traceDirName+str(traceCount)+".extra"
+    traceCount += 1
+    f = open(savefile, "wb")
+    pickle.dump(SeqInfo, f, -1)
+    f.close()
     return tmp_cov
 
 def search_cov(cargs):
