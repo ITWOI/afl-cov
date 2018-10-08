@@ -55,11 +55,16 @@ traceData = []
 startTime = datetime.datetime.now()
 traceCount = 1
 traceDirName = "./tmp"
+statusFileName = "/fuzzer_stats"
+statusPIDReg = 'fuzzer_pid\s+\:\s+(\d+)'
+outputDir = "queue"
+fileRes = "/id:*"
 if not os.path.isdir(traceDirName):
     os.mkdir(traceDirName)
 
 def main():
-
+    global statusFileName, statusPIDReg
+    global outputDir, fileRes
     exit_success = 0
     exit_failure = 1
 
@@ -68,7 +73,11 @@ def main():
     if cargs.version:
         print "afl-cov-" + __version__
         return exit_success
-
+    if cargs.klee:
+        statusFileName = "/info"
+        statusPIDReg = 'PID:\s+(\d+)'
+        outputDir = ""
+        fileRes = "/*.ktest"
     if cargs.gcov_check or cargs.gcov_check_bin:
         if is_gcov_enabled(cargs):
             return exit_success
@@ -147,7 +156,7 @@ def process_afl_test_cases(cargs):
             last_file = False
             num_files = 0
             new_files = []
-            tmp_files = import_test_cases(fuzz_dir + '/queue')
+            tmp_files = import_test_cases(fuzz_dir + outputDir)
             dir_ctr  += 1
             f_ctr     = 0
 
@@ -161,7 +170,7 @@ def process_afl_test_cases(cargs):
 
             if new_files:
                 logr("\n*** Imported %d new test cases from: %s\n" \
-                        % (len(new_files), (fuzz_dir + '/queue')),
+                        % (len(new_files), (fuzz_dir + outputDir)),
                         cov_paths['log_file'], cargs)
 
             for f in new_files:
@@ -184,10 +193,13 @@ def process_afl_test_cases(cargs):
 
                 cov_paths['diff'] = "%s/%s" % \
                         (cov_paths['diff_dir'], os.path.basename(f))
-                id_range_update(f, cov_paths)
+                if cargs.cover_corpus or cargs.coverage_at_exit:
+                    id_range_update(f, cov_paths)
 
                 ### execute the command to generate code coverage stats
                 ### for the current AFL test case file
+                if cargs.klee:
+                    f = interpreteKLEEOutput(f) 
                 if run_once:
                     run_cmd(cargs.coverage_cmd.replace('AFL_FILE', f),
                             cov_paths['log_file'], cargs, NO_OUTPUT)
@@ -524,7 +536,7 @@ def extract_coverage(lcov_file, cargs):
                     else:
                         tmp_cov['pos'][current_file]['line'][lnum] = ''
                         tmpSeq["line"].append(lnum)
-    savefile = traceDirName+str(traceCount)+".extra"
+    savefile = traceDirName+"/"+str(traceCount)+".extra"
     traceCount += 1
     f = open(savefile, "wb")
     pickle.dump(SeqInfo, f, -1)
@@ -679,18 +691,18 @@ def gen_web_cov_report(fuzz_dir, cov_paths, cargs):
 def is_afl_fuzz_running(cargs):
 
     pid = None
-    stats_file = cargs.afl_fuzzing_dir + '/fuzzer_stats'
+    stats_file = cargs.afl_fuzzing_dir + statusFileName
 
     if os.path.exists(stats_file):
-        pid = get_running_pid(stats_file, 'fuzzer_pid\s+\:\s+(\d+)')
+        pid = get_running_pid(stats_file, statusPIDReg)
     else:
         for p in os.listdir(cargs.afl_fuzzing_dir):
-            stats_file = "%s/%s/fuzzer_stats" % (cargs.afl_fuzzing_dir, p)
+            stats_file = ("%s/%s"+statusFileName) % (cargs.afl_fuzzing_dir, p)
             if os.path.exists(stats_file):
                 ### allow a single running AFL instance in parallel mode
                 ### to mean that AFL is running (and may be generating
                 ### new code coverage)
-                pid = get_running_pid(stats_file, 'fuzzer_pid\s+\:\s+(\d+)')
+                pid = get_running_pid(stats_file, statusPIDReg)
                 if pid:
                     break
 
@@ -703,7 +715,8 @@ def get_running_pid(stats_file, pid_re):
     with open(stats_file, 'r') as f:
         for line in f:
             line = line.strip()
-            ### fuzzer_pid     : 13238
+            ### fuzzer_pid     : 13238 #AFL
+            ### PID: 13238 #KLEE
             m = re.search(pid_re, line)
             if m and m.group(1):
                 is_running = int(m.group(1))
@@ -716,6 +729,22 @@ def get_running_pid(stats_file, pid_re):
                     pid = is_running
                 break
     return pid
+
+def interpreteKLEEOutput(f):
+    res = subprocess.check_output("ktest-tool --write-ints --trim-zeros " + f, shell=True)
+    res = res.split("\n")
+    data = ""
+    for i in res:
+        m = re.search("\w+\s+\d+\:\s+data\:\s+\'(\w+)\'", i)
+        if m and m.group(1):
+            data = m.group(1)
+            break
+    fName = os.path.dirname(f) + "/tmp.input"
+    f = open(fName, "w+")
+    f.write(data)
+    f.close()
+    return fName 
+        
 
 def run_cmd(cmd, log_file, cargs, collect):
 
@@ -769,14 +798,14 @@ def import_fuzzing_dirs(cov_paths, cargs):
 
     def_dir = cargs.afl_fuzzing_dir
 
-    if is_dir("%s/queue" % def_dir):
+    if is_dir(("%s/" + outputDir) % def_dir):
         if def_dir not in cov_paths['dirs']:
             add_dir(def_dir, cov_paths)
     else:
         for p in os.listdir(def_dir):
             fuzz_dir = "%s/%s" % (def_dir, p)
             if is_dir(fuzz_dir):
-                if is_dir("%s/queue" % fuzz_dir):
+                if is_dir(("%s/" + outputDir) % fuzz_dir):
                     ### found an AFL fuzzing directory instance from
                     ### parallel AFL execution
                     if fuzz_dir not in cov_paths['dirs']:
@@ -785,7 +814,7 @@ def import_fuzzing_dirs(cov_paths, cargs):
     return True
 
 def import_test_cases(qdir):
-    return sorted(glob.glob(qdir + "/id:*"))
+    return sorted(glob.glob(qdir + fileRes))
 
 def init_tracking(cov_paths, cargs):
 
@@ -1099,9 +1128,9 @@ def stop_afl(cargs):
                 % cargs.afl_fuzzing_dir
         return False
 
-    if os.path.exists(cargs.afl_fuzzing_dir + '/fuzzer_stats'):
-        afl_pid = get_running_pid(cargs.afl_fuzzing_dir + '/fuzzer_stats',
-                'fuzzer_pid\s+\:\s+(\d+)')
+    if os.path.exists(cargs.afl_fuzzing_dir + statusFileName):
+        afl_pid = get_running_pid(cargs.afl_fuzzing_dir + statusFileName,
+                statusPIDReg)
         if afl_pid:
             print "[+] Stopping running afl-fuzz instance, PID: %d" % afl_pid
             os.kill(afl_pid, signal.SIGTERM)
@@ -1111,9 +1140,9 @@ def stop_afl(cargs):
     else:
         found = False
         for p in os.listdir(cargs.afl_fuzzing_dir):
-            stats_file = cargs.afl_fuzzing_dir + '/' + p + '/fuzzer_stats'
+            stats_file = cargs.afl_fuzzing_dir + '/' + p + statusFileName
             if os.path.exists(stats_file):
-                afl_pid = get_running_pid(stats_file, 'fuzzer_pid\s+\:\s+(\d+)')
+                afl_pid = get_running_pid(stats_file, statusPIDReg)
                 if afl_pid:
                     print "[+] Stopping running afl-fuzz instance, PID: %d" \
                             % afl_pid
@@ -1180,9 +1209,12 @@ def parse_cmdline():
     p.add_argument("--coverage-at-exit", action='store_true',
             help="Only calculate coverage just before afl-cov exit.",
             default=False)
+    p.add_argument("--klee", action='store_true',
+            help="set for afl mode, otherwise use klee",
+            default=False)
     p.add_argument("--sleep", type=int,
             help="In --live mode, # of seconds to sleep between checking for new queue files",
-            default=60)
+            default=1)
     p.add_argument("--gcov-check", action='store_true',
             help="Check to see if there is a binary in --coverage-cmd (or in --gcov-check-bin) has coverage support",
             default=False)
