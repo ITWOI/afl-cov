@@ -198,13 +198,17 @@ def process_afl_test_cases(cargs):
 
                 ### execute the command to generate code coverage stats
                 ### for the current AFL test case file
-                if cargs.klee:
-                    f = interpreteKLEEOutput(f) 
                 if run_once:
-                    run_cmd(cargs.coverage_cmd.replace('AFL_FILE', f),
-                            cov_paths['log_file'], cargs, NO_OUTPUT)
+                    if cargs.klee:
+                        interpreteKLEEOutput(f, cargs.coverage_cmd.replace('AFL_FILE', f)
+                    else:
+                        run_cmd(cargs.coverage_cmd.replace('AFL_FILE', f),
+                                cov_paths['log_file'], cargs, NO_OUTPUT)
                 else:
-                    out_lines = run_cmd(cargs.coverage_cmd.replace('AFL_FILE', f),
+                    if cargs.klee:
+                        out_lines = interpreteKLEEOutput(f, cargs.coverage_cmd.replace('AFL_FILE', f)
+                    else:
+                        out_lines = run_cmd(cargs.coverage_cmd.replace('AFL_FILE', f),
                             cov_paths['log_file'], cargs, WANT_OUTPUT)[1]
                     run_once = True
 
@@ -730,7 +734,10 @@ def get_running_pid(stats_file, pid_re):
                 break
     return pid
 
-def interpreteKLEEOutput(f):
+def interpreteKLEEOutput(f, command):
+    res = subprocess.check_output("ktest-replay " + command, shell=True)
+    return res
+
     res = subprocess.check_output("ktest-tool --write-ints --trim-zeros " + f, shell=True)
     res = res.split("\n")
     data = ""
