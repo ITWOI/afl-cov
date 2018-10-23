@@ -200,13 +200,13 @@ def process_afl_test_cases(cargs):
                 ### for the current AFL test case file
                 if run_once:
                     if cargs.klee:
-                        interpreteKLEEOutput(f, cargs.coverage_cmd.replace('AFL_FILE', f)
+                        interpreteKLEEOutput(f, cargs.coverage_cmd.replace('AFL_FILE', f))
                     else:
                         run_cmd(cargs.coverage_cmd.replace('AFL_FILE', f),
                                 cov_paths['log_file'], cargs, NO_OUTPUT)
                 else:
                     if cargs.klee:
-                        out_lines = interpreteKLEEOutput(f, cargs.coverage_cmd.replace('AFL_FILE', f)
+                        out_lines = interpreteKLEEOutput(f, cargs.coverage_cmd.replace('AFL_FILE', f))
                     else:
                         out_lines = run_cmd(cargs.coverage_cmd.replace('AFL_FILE', f),
                             cov_paths['log_file'], cargs, WANT_OUTPUT)[1]
@@ -735,7 +735,7 @@ def get_running_pid(stats_file, pid_re):
     return pid
 
 def interpreteKLEEOutput(f, command):
-    res = subprocess.check_output("ktest-replay " + command, shell=True)
+    res = subprocess.check_output("klee-replay " + command, shell=True)
     return res
 
     res = subprocess.check_output("ktest-tool --write-ints --trim-zeros " + f, shell=True)
