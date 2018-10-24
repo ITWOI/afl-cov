@@ -57,7 +57,7 @@ traceCount = 1
 traceDirName = "./tmp"
 statusFileName = "/fuzzer_stats"
 statusPIDReg = 'fuzzer_pid\s+\:\s+(\d+)'
-outputDir = "queue"
+outputDir = "/queue"
 fileRes = "/id:*"
 if not os.path.isdir(traceDirName):
     os.mkdir(traceDirName)
